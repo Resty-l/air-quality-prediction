@@ -49,24 +49,46 @@ model, scaler = load_resources()
 features = ['latitude', 'longitude', 'humidity', 'temperature',
             's5p_no2', 's5p_ai', 'lst_temp_k', 'wind_u', 'wind_v',
             'day_sin', 'day_cos', 'pm2_5_lag_1', 'pm2_5_lag_2', 'pm2_5_lag_3']
-
-def predict_pm25(lat, lon):
+def predict_7_day_forecast(lat, lon):
+    forecast_data = []
     current_date = datetime.now()
-    day_of_year = current_date.timetuple().tm_yday
-    day_sin = np.sin(2 * np.pi * day_of_year / 365)
-    day_cos = np.cos(2 * np.pi * day_of_year / 365)
-
-    # Note: Using 0.0 for missing sensors/meteorology
-    input_vals = [lat, lon, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, day_sin, day_cos, 0.0, 0.0, 0.0]
-    input_df = pd.DataFrame([input_vals], columns=features)
     
-    scaled_input = scaler.transform(input_df)
-    tensor_input = torch.FloatTensor(scaled_input).reshape(1, 1, 14)
-
-    with torch.no_grad():
-        prediction = model(tensor_input).item()
+    # We'll start with the current known lags (using 0 for now as per your setup)
+    # In a more advanced version, these would be actual recent readings
+    last_pm25 = 0.0 
     
-    return round(max(0, float(prediction)), 2) # Prevent negative values
+    for i in range(7):
+        forecast_date = current_date + timedelta(days=i)
+        day_of_year = forecast_date.timetuple().tm_yday
+        
+        day_sin = np.sin(2 * np.pi * day_of_year / 365)
+        day_cos = np.cos(2 * np.pi * day_of_year / 365)
+
+        # Prepare features (maintaining your 14-feature order)
+        input_vals = [
+            lat, lon, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
+            day_sin, day_cos, 
+            last_pm25, 0.0, 0.0 # Using the previous day's prediction as the new lag
+        ]
+        
+        input_df = pd.DataFrame([input_vals], columns=features)
+        scaled_input = scaler.transform(input_df)
+        tensor_input = torch.FloatTensor(scaled_input).reshape(1, 1, 14)
+
+        with torch.no_grad():
+            prediction = model(tensor_input).item()
+            prediction = max(0, float(prediction))
+        
+        forecast_data.append({
+            "Day": forecast_date.strftime('%A'),
+            "Date": forecast_date.strftime('%b %d'),
+            "PM2.5": round(prediction, 2)
+        })
+        
+        # Update lag for the "next" day in the loop
+        last_pm25 = prediction
+        
+    return pd.DataFrame(forecast_data)
 
 # ----------------------------
 # AQI LOGIC & UI (Remains mostly same)
@@ -83,19 +105,42 @@ st.title("🌍 Uganda Air Quality Monitoring")
 tab1, tab2 = st.tabs(["📍 Local Check", "📊 Planner Dashboard"])
 
 with tab1:
-    st.subheader("Real-time Estimation")
+    st.subheader("7-Day Air Quality Forecast")
+    st.write("Enter coordinates to see the predicted pollution trend for the coming week.")
+
     col1, col2 = st.columns(2)
     lat = col1.number_input("Latitude", value=0.3476, format="%.4f")
     lon = col2.number_input("Longitude", value=32.5825, format="%.4f")
 
-    if st.button("Predict PM2.5"):
-        pm25 = predict_pm25(lat, lon)
-        cat, col, advice = categorize_aqi(pm25)
-        st.metric("PM2.5 Level", f"{pm25} µg/m³")
-        if col == "Green": st.success(advice)
-        elif col == "Yellow": st.warning(advice)
-        elif col == "Orange": st.warning(advice)
-        else: st.error(advice)
+    if st.button("Generate Forecast"):
+        forecast_df = predict_7_day_forecast(lat, lon)
+        
+        # --- Current Day Hero Metric ---
+        today_val = forecast_df.iloc[0]['PM2.5']
+        category, color, advice = categorize_aqi(today_val)
+        
+        st.divider()
+        c1, c2 = st.columns([1, 2])
+        
+        with c1:
+            st.metric("Today's Estimated PM2.5", f"{today_val} µg/m³")
+            st.markdown(f"**Status:** {category}")
+            if color == "Green": st.success(advice)
+            elif color == "Yellow": st.warning(advice)
+            elif color == "Orange": st.warning(advice)
+            else: st.error(advice)
+
+        with c2:
+            # --- Weekly Trend Chart ---
+            fig = px.bar(forecast_df, x='Day', y='PM2.5', 
+                         text='PM2.5', title="7-Day Trend",
+                         color='PM2.5', color_continuous_scale='Reds')
+            fig.update_layout(showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+
+        # --- Daily Breakdown Table ---
+        with st.expander("See Detailed Daily Breakdown"):
+            st.table(forecast_df)
 
 # ----------------------------
 # CITY PLANNER DASHBOARD VIEW
