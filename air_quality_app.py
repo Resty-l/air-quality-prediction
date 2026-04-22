@@ -163,6 +163,17 @@ with tab1:
 # CITY PLANNER DASHBOARD VIEW
 # ----------------------------
 with tab2:
+    st.subheader("Regional Analysis")
+    # Heatmap logic remains identical to your script
+    num_points = 100
+    data = pd.DataFrame({
+        "lat": np.random.uniform(0.1, 0.5, num_points),
+        "lon": np.random.uniform(32.4, 32.7, num_points),
+        "pm25": np.random.uniform(10, 80, num_points)
+    })
+    st.pydeck_chart(pdk.Deck(
+        layers=[pdk.Layer("HeatmapLayer", data=data, get_position='[lon, lat]', get_weight="pm25", radiusPixels=50)],
+       with tab2:
     st.subheader("🛰️ National Air Quality Surface (Model Predictions)")
     st.write("This heatmap visualizes air quality predictions across the entire country, filling the gaps between physical sensors.")
 
@@ -195,41 +206,5 @@ with tab2:
                 with torch.no_grad():
                     pred = model(tensor_input).item()
                 
-                results.append({"lat": lat, "lon": lon, "pm25": max(0, float(pred))})
-        
-        return pd.DataFrame(results)
-
-    # Run the prediction grid
-    with st.spinner("Calculating national air quality surface..."):
-        national_grid_df = get_national_prediction_grid()
-
-    # 2. CONFIGURE THE HEATMAP LAYER
-    # radiusPixels=60 creates the broad 'glow' effect you had in your original design
-    layer = pdk.Layer(
-        "HeatmapLayer",
-        data=national_grid_df,
-        get_position='[lon, lat]',
-        get_weight="pm25",
-        radiusPixels=60, 
-        opacity=0.7,
-    )
-
-    # 3. SET VIEW STATE (Centered on Uganda)
-    view_state = pdk.ViewState(
-        latitude=1.37, 
-        longitude=32.29, 
-        zoom=6.2, 
-        pitch=0
-    )
-
-    # 4. RENDER ON SATELLITE STYLE
-    # Note: Satellite style is usually built into pydeck/mapbox
-    st.pydeck_chart(pdk.Deck(
-        layers=[layer],
-        initial_view_state=view_state,
-        map_style="mapbox://styles/mapbox/satellite-v9", # REAL SATELLITE DATA
-        tooltip={"text": "Predicted PM2.5: {pm25} µg/m³"}
+                results.append({"lat":  initial_view_state=pdk.ViewState(latitude=0.34, longitude=32.58, zoom=10)
     ))
-
-    # Optional: Display a summary of what the model found
-    #st.info(f"💡 **Analysis:** The model has estimated the current national average PM2.5 at **{round(national_grid_df['pm25'].mean(), 2)} µg/m³**.")
