@@ -7,6 +7,9 @@ from datetime import datetime, timedelta
 import torch
 import torch.nn as nn
 import joblib
+from geopy.geocoders import Nominatim
+
+geolocator = Nominatim(user_agent="uganda_air_quality_app")
 
 # ----------------------------
 # PYTORCH MODEL CLASS DEFINITION
@@ -119,11 +122,33 @@ tab1, tab2 = st.tabs(["📍 Local Check", "📊 Planner Dashboard"])
 
 with tab1:
     st.subheader("7-Day Forecast")
-    st.write("Enter coordinates to see the predicted pollution trend for the coming week.")
     
+    # --- NEW SEARCH BAR SECTION ---
+    search_query = st.text_input("🔍 Search for a location in Uganda (e.g. Nakasero, Jinja, Mbarara)", "")
+    
+    # Default values (Kampala)
+    default_lat = 0.3476
+    default_lon = 32.5825
+
+    if search_query:
+        try:
+            # We append 'Uganda' to ensure it searches within the country
+            location = geolocator.geocode(f"{search_query}, Uganda")
+            if location:
+                default_lat = location.latitude
+                default_lon = location.longitude
+                st.info(f"Found: {location.address}")
+            else:
+                st.error("Location not found. Using default Kampala coordinates.")
+        except Exception as e:
+            st.error("Service busy. Please enter coordinates manually.")
+
+    st.write("---")
+    
+    # Manual Coordinate Inputs (Automatically updated by search)
     col1, col2 = st.columns(2)
-    lat = col1.number_input("Latitude", value=0.3476, format="%.4f")
-    lon = col2.number_input("Longitude", value=32.5825, format="%.4f")
+    lat = col1.number_input("Latitude", value=default_lat, format="%.4f")
+    lon = col2.number_input("Longitude", value=default_lon, format="%.4f")
     
     if st.button("Generate Forecast"):
         forecast_df = predict_7_day_forecast(lat, lon)
