@@ -163,49 +163,73 @@ with tab1:
 # CITY PLANNER DASHBOARD VIEW
 # ----------------------------
 with tab2:
-    st.subheader("National Air Quality Heatmap")
-    st.write("Visualizing estimated PM2.5 levels across the country.")
+    st.subheader("🛰️ National Air Quality Surface (Model Predictions)")
+    st.write("This heatmap visualizes air quality predictions across the entire country, filling the gaps between physical sensors.")
 
-    # 1. GENERATE DATA THAT LOOKS LIKE UGANDA (Not a square)
-    num_points = 1000
-    
-    # We create clusters to avoid the "perfect square" look
-    # Central/Kampala Cluster
-    c_lat = np.random.normal(0.34, 0.5, 400)
-    c_lon = np.random.normal(32.58, 0.4, 400)
-    
-    # Rest of Country (Broad spread)
-    r_lat = np.random.uniform(-1.0, 4.0, 600)
-    r_lon = np.random.uniform(30.0, 34.5, 600)
-    
-    data = pd.DataFrame({
-        "lat": np.concatenate([c_lat, r_lat]),
-        "lon": np.concatenate([c_lon, r_lon]),
-        "pm25": np.random.uniform(10, 90, 1000)
-    })
+    # 1. GENERATE A NATIONAL GRID & PREDICT
+    # This function creates a grid of points across Uganda and gets predictions from your model
+    @st.cache_data
+    def get_national_prediction_grid():
+        # Coordinates covering all of Uganda: Lat (-1.5 to 4.5), Lon (29.5 to 35.0)
+        # We use 30x30 points for a smooth balance between speed and detail
+        grid_lats = np.linspace(-1.5, 4.5, 30)
+        grid_lons = np.linspace(29.5, 35.0, 30)
+        
+        results = []
+        current_date = datetime.now()
+        day_of_year = current_date.timetuple().tm_yday
+        day_sin = np.sin(2 * np.pi * day_of_year / 365)
+        day_cos = np.cos(2 * np.pi * day_of_year / 365)
 
-    # 2. PYDECK WITH RELIABLE MAP STYLE
-    view_state = pdk.ViewState(
-        latitude=1.37, 
-        longitude=32.29, 
-        zoom=6.0, 
-        pitch=0
-    )
+        for lat in grid_lats:
+            for lon in grid_lons:
+                # Prepare features for the model
+                # We use standard baseline values for meteorology to focus on spatial differences
+                input_vals = [lat, lon, 65.0, 24.0, 0.0001, 0.5, 300.0, 0.0, 0.0, 
+                              day_sin, day_cos, 25.0, 0.0, 0.0]
+                
+                input_df = pd.DataFrame([input_vals], columns=features)
+                scaled_input = scaler.transform(input_df)
+                tensor_input = torch.FloatTensor(scaled_input).reshape(1, 1, 14)
 
+                with torch.no_grad():
+                    pred = model(tensor_input).item()
+                
+                results.append({"lat": lat, "lon": lon, "pm25": max(0, float(pred))})
+        
+        return pd.DataFrame(results)
+
+    # Run the prediction grid
+    with st.spinner("Calculating national air quality surface..."):
+        national_grid_df = get_national_prediction_grid()
+
+    # 2. CONFIGURE THE HEATMAP LAYER
+    # radiusPixels=60 creates the broad 'glow' effect you had in your original design
     layer = pdk.Layer(
         "HeatmapLayer",
-        data=data,
+        data=national_grid_df,
         get_position='[lon, lat]',
         get_weight="pm25",
-        radiusPixels=30,
+        radiusPixels=60, 
         opacity=0.7,
     )
 
-    # Note: 'light' or 'dark' styles are more reliable in Streamlit
+    # 3. SET VIEW STATE (Centered on Uganda)
+    view_state = pdk.ViewState(
+        latitude=1.37, 
+        longitude=32.29, 
+        zoom=6.2, 
+        pitch=0
+    )
+
+    # 4. RENDER ON SATELLITE STYLE
+    # Note: Satellite style is usually built into pydeck/mapbox
     st.pydeck_chart(pdk.Deck(
         layers=[layer],
         initial_view_state=view_state,
-        map_style="mapbox://styles/mapbox/light-v9", # Standard light map
-        tooltip={"text": "Estimated PM2.5: {pm25}"}
+        map_style="mapbox://styles/mapbox/satellite-v9", # REAL SATELLITE DATA
+        tooltip={"text": "Predicted PM2.5: {pm25} µg/m³"}
     ))
 
+    # Optional: Display a summary of what the model found
+    #st.info(f"💡 **Analysis:** The model has estimated the current national average PM2.5 at **{round(national_grid_df['pm25'].mean(), 2)} µg/m³**.")
