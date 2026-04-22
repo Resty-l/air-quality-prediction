@@ -97,16 +97,62 @@ with tab1:
         elif col == "Orange": st.warning(advice)
         else: st.error(advice)
 
+# ----------------------------
+# CITY PLANNER DASHBOARD VIEW
+# ----------------------------
 with tab2:
-    st.subheader("Regional Analysis")
-    # Heatmap logic remains identical to your script
-    num_points = 100
+    st.sidebar.header("Dashboard Controls")
+    selected_date = st.sidebar.date_input("Select Date for Analysis", datetime.today())
+
+    st.subheader("National Air Quality Heatmap (Uganda)")
+
+    # 1. COORDINATES FOR ALL OF UGANDA
+    # Lat: -1.5 (South) to 4.5 (North) | Lon: 29.5 (West) to 35.0 (East)
+    num_points = 800 
     data = pd.DataFrame({
-        "lat": np.random.uniform(0.1, 0.5, num_points),
-        "lon": np.random.uniform(32.4, 32.7, num_points),
-        "pm25": np.random.uniform(10, 80, num_points)
+        "lat": np.random.uniform(-1.5, 4.5, num_points),
+        "lon": np.random.uniform(29.5, 35.0, num_points),
+        "pm25": np.random.uniform(5, 120, num_points) # Random PM2.5 for visualization
     })
+
+    # 2. ADD POLLUTION CLUSTERS (Optional: makes Kampala/Entebbe look 'hotter')
+    # This adds a bit of realism so the whole country isn't just uniform random dots
+    kampala_mask = (data['lat'].between(0.1, 0.6)) & (data['lon'].between(32.3, 32.8))
+    data.loc[kampala_mask, 'pm25'] += np.random.uniform(40, 80, kampala_mask.sum())
+
+    # Add AQI categories
+    data['category'], data['color'], _ = zip(*data['pm25'].apply(categorize_aqi))
+
+    # PyDeck Heatmap Layer
+    layer = pdk.Layer(
+        "HeatmapLayer",
+        data=data,
+        get_position='[lon, lat]',
+        get_weight="pm25",
+        radiusPixels=40, # Smaller radius for national view
+        opacity=0.9,
+    )
+
+    # PyDeck View State (Centered on Uganda)
+    view_state = pdk.ViewState(
+        latitude=1.3733, # Center of Uganda
+        longitude=32.2903,
+        zoom=6.5, # Zoomed out to see the whole country
+        pitch=0,
+    )
+
     st.pydeck_chart(pdk.Deck(
-        layers=[pdk.Layer("HeatmapLayer", data=data, get_position='[lon, lat]', get_weight="pm25", radiusPixels=50)],
-        initial_view_state=pdk.ViewState(latitude=0.34, longitude=32.58, zoom=10)
+        layers=[layer],
+        initial_view_state=view_state,
+        map_style='mapbox://styles/mapbox/light-v9', # Cleaner look for heatmaps
+        tooltip={"text": "Estimated PM2.5: {pm25} µg/m³"}
     ))
+
+    # DOWNLOAD DATA BUTTON (sidebar)
+    csv = data.to_csv(index=False).encode('utf-8')
+    st.sidebar.download_button(
+        "Download National Data",
+        csv,
+        f"uganda_aqi_{selected_date}.csv",
+        "text/csv"
+    )
