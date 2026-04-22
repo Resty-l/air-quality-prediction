@@ -117,12 +117,12 @@ def categorize_aqi(pm25):
     else: return "Unhealthy", "Red", "Avoid outdoor activity; air quality is poor."
 
 st.set_page_config(layout="wide", page_title="Uganda Air Quality")
-st.title("🌍 Uganda Air Quality Monitoring")
+st.title("Uganda Air Quality Monitoring")
 
 tab1, tab2 = st.tabs(["📍 Local Check", "📊 Planner Dashboard"])
 
 with tab1:
-    st.subheader("7-Day Air Quality Forecast")
+    st.subheader("7-Day Forecast")
     st.write("Enter coordinates to see the predicted pollution trend for the coming week.")
 
     col1, col2 = st.columns(2)
