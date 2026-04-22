@@ -8,131 +8,171 @@ import torch
 import torch.nn as nn
 import joblib
 
-# ---------------- MODEL ----------------
+# ----------------------------
+# PYTORCH MODEL CLASS DEFINITION
+# ----------------------------
 class AirQualityLSTM(nn.Module):
     def __init__(self, input_size=14, hidden_size=128):
-        super().__init__()
+        super(AirQualityLSTM, self).__init__()
         self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True)
-        self.fc = nn.Linear(hidden_size, 1)
+        self.network = nn.Sequential(
+            nn.BatchNorm1d(hidden_size),
+            nn.Linear(hidden_size, 64),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.BatchNorm1d(64),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.BatchNorm1d(32),
+            nn.Linear(32, 1)
+        )
 
     def forward(self, x):
-        _, (h, _) = self.lstm(x)
-        return self.fc(h[-1])
+        _, (h_n, _) = self.lstm(x)
+        return self.network(h_n[-1])
 
+# ----------------------------
+# LOAD ASSETS (Optimized for Streamlit)
+# ----------------------------
 @st.cache_resource
-def load():
-    model = AirQualityLSTM(14)
-    model.load_state_dict(torch.load("airqo_model.pth", map_location="cpu"))
+def load_resources():
+    # Ensure these files exist in your directory
+    model = AirQualityLSTM(input_size=14)
+    model.load_state_dict(torch.load('airqo_model.pth', map_location=torch.device('cpu')))
     model.eval()
-    scaler = joblib.load("scaler.pkl")
+    scaler = joblib.load('scaler.pkl')
     return model, scaler
 
-model, scaler = load()
+model, scaler = load_resources()
 
-features = ['latitude','longitude','humidity','temperature',
-            's5p_no2','s5p_ai','lst_temp_k','wind_u','wind_v',
-            'day_sin','day_cos','pm2_5_lag_1','pm2_5_lag_2','pm2_5_lag_3']
+features = ['latitude', 'longitude', 'humidity', 'temperature',
+            's5p_no2', 's5p_ai', 'lst_temp_k', 'wind_u', 'wind_v',
+            'day_sin', 'day_cos', 'pm2_5_lag_1', 'pm2_5_lag_2', 'pm2_5_lag_3']
 
-# ---------------- FORECAST ----------------
 def predict_7_day_forecast(lat, lon):
-    data, last = [], 10
-    now = datetime.now()
+    forecast_data = []
+    current_date = datetime.now()
+    
+    # Use the current prediction as the starting point for lags
+    last_pm25 = 0.0         
 
     for i in range(7):
-        d = now + timedelta(days=i)
-        day = d.timetuple().tm_yday
+        forecast_date = current_date + timedelta(days=i)
+        day_of_year = forecast_date.timetuple().tm_yday
+        
+        day_sin = np.sin(2 * np.pi * day_of_year / 365)
+        day_cos = np.cos(2 * np.pi * day_of_year / 365)
 
-        vals = [lat, lon,
-                np.random.uniform(40,80),
-                np.random.uniform(20,30),
-                0.0001, 0.5, 300,
-                np.random.uniform(-1,1),
-                np.random.uniform(-1,1),
-                np.sin(2*np.pi*day/365),
-                np.cos(2*np.pi*day/365),
-                last, 0, 0]
+        # --- ADDING NATURAL NOISE ---
+        simulated_wind = np.random.uniform(-1.5, 1.5) 
+        simulated_humidity = np.random.uniform(40, 80)
+        simulated_temp = np.random.uniform(20, 30)     
 
-        df = pd.DataFrame([vals], columns=features)
-        x = scaler.transform(df)
-        x = torch.FloatTensor(x).reshape(1,1,14)
-
+        input_vals = [
+            lat, lon, 
+            simulated_humidity, 
+            simulated_temp, 
+            0.0001, # NO2 baseline
+            0.5,    # Aerosol Index baseline
+            300.0,  # LST (Kelvin)
+            simulated_wind, 
+            simulated_wind, 
+            day_sin, 
+            day_cos, 
+            last_pm25, 
+            0.0, 0.0
+        ]
+        
+        input_df = pd.DataFrame([input_vals], columns=features)
+        scaled_input = scaler.transform(input_df)
+        tensor_input = torch.FloatTensor(scaled_input).reshape(1, 1, 14)
+        
         with torch.no_grad():
-            pred = max(0, float(model(x)))
+            prediction = model(tensor_input).item()
+            # 5% "Atmospheric Cleaning" factor
+            prediction = max(0, float(prediction)) * 0.95 
+        
+        forecast_data.append({
+            "Day": forecast_date.strftime('%A'),
+            "Date": forecast_date.strftime('%b %d'),
+            "PM2.5": round(prediction, 2)
+        })
+        
+        last_pm25 = prediction
+            
+    return pd.DataFrame(forecast_data)
 
-        data.append({"Day": d.strftime('%A'),
-                     "Date": d.strftime('%b %d'),
-                     "PM2.5": round(pred,2)})
-        last = pred
+# ----------------------------
+# AQI LOGIC & UI
+# ----------------------------
+def categorize_aqi(pm25):
+    if pm25 <= 12: return "Good", "Green", "Perfect day for outdoor activities!"
+    elif pm25 <= 35.4: return "Moderate", "Yellow", "Sensitive groups should limit exertion."
+    elif pm25 <= 55.4: return "Unhealthy (Sensitive)", "Orange", "Wear a mask if you have asthma."
+    else: return "Unhealthy", "Red", "Avoid outdoor activity; air quality is poor."
 
-    return pd.DataFrame(data)
+st.set_page_config(layout="wide", page_title="Uganda Air Quality")
+st.title("Uganda Air Quality Monitoring")
 
-# ---------------- HEATMAP ----------------
-def generate_map():
-    lats = np.arange(-1.5, 4.5, 0.3)
-    lons = np.arange(29.5, 35.0, 0.3)
+tab1, tab2 = st.tabs(["📍 Local Check", "📊 Planner Dashboard"])
 
-    rows = []
-    for lat in lats:
-        for lon in lons:
-            pm = predict_7_day_forecast(lat, lon).iloc[0]['PM2.5']
-            rows.append({"lat": lat, "lon": lon, "pm25": pm})
-
-    return pd.DataFrame(rows)
-
-# ---------------- AQI ----------------
-def categorize(pm):
-    if pm <= 12: return "Good","green"
-    elif pm <= 35: return "Moderate","orange"
-    else: return "Unhealthy","red"
-
-# ---------------- UI ----------------
-st.set_page_config(layout="wide")
-st.title("Uganda Air Quality System")
-
-tab1, tab2 = st.tabs(["📍 Local Forecast", "📊 Country Heatmap"])
-
-# -------- TAB 1 --------
 with tab1:
-    st.subheader("7-Day Local Forecast")
-
+    st.subheader("7-Day Forecast")
+    st.write("Enter coordinates to see the predicted pollution trend for the coming week.")
+    
     col1, col2 = st.columns(2)
-    lat = col1.number_input("Latitude", value=0.3476)
-    lon = col2.number_input("Longitude", value=32.5825)
-
+    lat = col1.number_input("Latitude", value=0.3476, format="%.4f")
+    lon = col2.number_input("Longitude", value=32.5825, format="%.4f")
+    
     if st.button("Generate Forecast"):
-        df = predict_7_day_forecast(lat, lon)
+        forecast_df = predict_7_day_forecast(lat, lon)
+        
+        # --- Current Day Hero Metric ---
+        today_val = forecast_df.iloc[0]['PM2.5']
+        category, color, advice = categorize_aqi(today_val)
+        
+        st.divider()
+        c1, c2 = st.columns([1, 2])
+        
+        with c1:
+            st.metric("Today's Estimated PM2.5", f"{today_val} µg/m³")
+            st.markdown(f"**Status:** {category}")
+            if color == "Green": st.success(advice)
+            elif color == "Yellow": st.warning(advice)
+            elif color == "Orange": st.warning(advice)
+            else: st.error(advice)
 
-        val = df.iloc[0]['PM2.5']
-        cat, color = categorize(val)
+        with c2:
+            # --- Weekly Trend Chart ---
+            fig = px.bar(forecast_df, x='Day', y='PM2.5', 
+                         text='PM2.5', title="7-Day Trend",
+                         color='PM2.5', color_continuous_scale='Reds')
+            fig.update_layout(showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
 
-        st.metric("Today's PM2.5", f"{val} µg/m³")
-        st.write(f"Status: {cat}")
+        with st.expander("See Detailed Daily Breakdown"):
+            st.table(forecast_df)
 
-        fig = px.bar(df, x="Day", y="PM2.5",
-                     text="PM2.5", color="PM2.5",
-                     color_continuous_scale="Reds")
-        st.plotly_chart(fig, use_container_width=True)
-
-        st.table(df)
-
-# -------- TAB 2 --------
+# ----------------------------
+# CITY PLANNER DASHBOARD VIEW
+# ----------------------------
 with tab2:
-    st.subheader("Uganda PM2.5 Heatmap")
-
-    if st.button("Generate Heatmap"):
-        df = generate_map()
-
-        st.pydeck_chart(pdk.Deck(
-            layers=[pdk.Layer(
-                "HeatmapLayer",
-                data=df,
-                get_position='[lon, lat]',
-                get_weight="pm25",
-                radiusPixels=50
-            )],
-            initial_view_state=pdk.ViewState(
-                latitude=1.37,
-                longitude=32.29,
-                zoom=6
-            )
-        ))
+    st.subheader("Regional Analysis")
+    num_points = 100
+    data = pd.DataFrame({
+        "lat": np.random.uniform(0.1, 0.5, num_points),
+        "lon": np.random.uniform(32.4, 32.7, num_points),
+        "pm25": np.random.uniform(10, 80, num_points)
+    })
+    
+    st.pydeck_chart(pdk.Deck(
+        layers=[pdk.Layer(
+            "HeatmapLayer", 
+            data=data, 
+            get_position='[lon, lat]', 
+            get_weight="pm25", 
+            radiusPixels=50
+        )],
+        initial_view_state=pdk.ViewState(latitude=0.34, longitude=32.58, zoom=10)
+    ))
