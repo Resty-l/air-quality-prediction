@@ -158,11 +158,15 @@ with tab1:
 # CITY PLANNER DASHBOARD VIEW
 # ----------------------------
 with tab2:
-    st.subheader("Regional Analysis")
-    num_points = 100
+    st.subheader("Regional Analysis (Uganda Overview)")
+    
+    # 1. Expand the range to cover all of Uganda
+    # Latitude: South (~ -1.5) to North (~ 4.5)
+    # Longitude: West (~ 29.5) to East (~ 35.0)
+    num_points = 500  # Increased points for better national coverage
     data = pd.DataFrame({
-        "lat": np.random.uniform(0.1, 0.5, num_points),
-        "lon": np.random.uniform(32.4, 32.7, num_points),
+        "lat": np.random.uniform(-1.5, 4.5, num_points),
+        "lon": np.random.uniform(29.5, 35.0, num_points),
         "pm25": np.random.uniform(10, 80, num_points)
     })
     
@@ -172,7 +176,12 @@ with tab2:
             data=data, 
             get_position='[lon, lat]', 
             get_weight="pm25", 
-            radiusPixels=50
+            radiusPixels=40 # Adjusted for a wider view
         )],
-        initial_view_state=pdk.ViewState(latitude=0.34, longitude=32.58, zoom=10)
+        # 2. Adjust the initial view to center on the middle of Uganda
+        initial_view_state=pdk.ViewState(
+            latitude=1.3733,   # Geographic center of Uganda
+            longitude=32.2903, 
+            zoom=6             # Lower zoom level to see the whole country
+        )
     ))
