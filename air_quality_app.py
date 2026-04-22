@@ -163,58 +163,49 @@ with tab1:
 # CITY PLANNER DASHBOARD VIEW
 # ----------------------------
 with tab2:
-    st.sidebar.header("Dashboard Controls")
-    selected_date = st.sidebar.date_input("Select Date for Analysis", datetime.today())
+    st.subheader("National Air Quality Heatmap")
+    st.write("Visualizing estimated PM2.5 levels across the country.")
 
-    st.subheader("National Air Quality Heatmap (Uganda)")
-
-    # 1. COORDINATES FOR ALL OF UGANDA
-    # Lat: -1.5 (South) to 4.5 (North) | Lon: 29.5 (West) to 35.0 (East)
-    num_points = 800 
+    # 1. GENERATE DATA THAT LOOKS LIKE UGANDA (Not a square)
+    num_points = 1000
+    
+    # We create clusters to avoid the "perfect square" look
+    # Central/Kampala Cluster
+    c_lat = np.random.normal(0.34, 0.5, 400)
+    c_lon = np.random.normal(32.58, 0.4, 400)
+    
+    # Rest of Country (Broad spread)
+    r_lat = np.random.uniform(-1.0, 4.0, 600)
+    r_lon = np.random.uniform(30.0, 34.5, 600)
+    
     data = pd.DataFrame({
-        "lat": np.random.uniform(-1.5, 4.5, num_points),
-        "lon": np.random.uniform(29.5, 35.0, num_points),
-        "pm25": np.random.uniform(5, 120, num_points) # Random PM2.5 for visualization
+        "lat": np.concatenate([c_lat, r_lat]),
+        "lon": np.concatenate([c_lon, r_lon]),
+        "pm25": np.random.uniform(10, 90, 1000)
     })
 
-    # 2. ADD POLLUTION CLUSTERS (Optional: makes Kampala/Entebbe look 'hotter')
-    # This adds a bit of realism so the whole country isn't just uniform random dots
-    kampala_mask = (data['lat'].between(0.1, 0.6)) & (data['lon'].between(32.3, 32.8))
-    data.loc[kampala_mask, 'pm25'] += np.random.uniform(40, 80, kampala_mask.sum())
+    # 2. PYDECK WITH RELIABLE MAP STYLE
+    view_state = pdk.ViewState(
+        latitude=1.37, 
+        longitude=32.29, 
+        zoom=6.0, 
+        pitch=0
+    )
 
-    # Add AQI categories
-    data['category'], data['color'], _ = zip(*data['pm25'].apply(categorize_aqi))
-
-    # PyDeck Heatmap Layer
     layer = pdk.Layer(
         "HeatmapLayer",
         data=data,
         get_position='[lon, lat]',
         get_weight="pm25",
-        radiusPixels=40, # Smaller radius for national view
-        opacity=0.9,
+        radiusPixels=30,
+        opacity=0.7,
     )
 
-    # PyDeck View State (Centered on Uganda)
-    view_state = pdk.ViewState(
-        latitude=1.3733, # Center of Uganda
-        longitude=32.2903,
-        zoom=6.5, # Zoomed out to see the whole country
-        pitch=0,
-    )
-
+    # Note: 'light' or 'dark' styles are more reliable in Streamlit
     st.pydeck_chart(pdk.Deck(
         layers=[layer],
         initial_view_state=view_state,
-        map_style='mapbox://styles/mapbox/light-v9', # Cleaner look for heatmaps
-        tooltip={"text": "Estimated PM2.5: {pm25} µg/m³"}
+        map_style="mapbox://styles/mapbox/light-v9", # Standard light map
+        tooltip={"text": "Estimated PM2.5: {pm25}"}
     ))
 
-    # DOWNLOAD DATA BUTTON (sidebar)
-    csv = data.to_csv(index=False).encode('utf-8')
-    st.sidebar.download_button(
-        "Download National Data",
-        csv,
-        f"uganda_aqi_{selected_date}.csv",
-        "text/csv"
-    )
