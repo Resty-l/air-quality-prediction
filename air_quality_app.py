@@ -173,37 +173,5 @@ with tab2:
     })
     st.pydeck_chart(pdk.Deck(
         layers=[pdk.Layer("HeatmapLayer", data=data, get_position='[lon, lat]', get_weight="pm25", radiusPixels=50)],
-       with tab2:
-    st.subheader("🛰️ National Air Quality Surface (Model Predictions)")
-    st.write("This heatmap visualizes air quality predictions across the entire country, filling the gaps between physical sensors.")
-
-    # 1. GENERATE A NATIONAL GRID & PREDICT
-    # This function creates a grid of points across Uganda and gets predictions from your model
-    @st.cache_data
-    def get_national_prediction_grid():
-        # Coordinates covering all of Uganda: Lat (-1.5 to 4.5), Lon (29.5 to 35.0)
-        # We use 30x30 points for a smooth balance between speed and detail
-        grid_lats = np.linspace(-1.5, 4.5, 30)
-        grid_lons = np.linspace(29.5, 35.0, 30)
-        
-        results = []
-        current_date = datetime.now()
-        day_of_year = current_date.timetuple().tm_yday
-        day_sin = np.sin(2 * np.pi * day_of_year / 365)
-        day_cos = np.cos(2 * np.pi * day_of_year / 365)
-
-        for lat in grid_lats:
-            for lon in grid_lons:
-                # Prepare features for the model
-                # We use standard baseline values for meteorology to focus on spatial differences
-                input_vals = [lat, lon, 65.0, 24.0, 0.0001, 0.5, 300.0, 0.0, 0.0, 
-                              day_sin, day_cos, 25.0, 0.0, 0.0]
-                
-                input_df = pd.DataFrame([input_vals], columns=features)
-                scaled_input = scaler.transform(input_df)
-                tensor_input = torch.FloatTensor(scaled_input).reshape(1, 1, 14)
-
-                with torch.no_grad():
-                    pred = model(tensor_input).item()
-                
-                results.append({"lat":  initial_view_state=pdk.ViewState(latitude=0.34, longitude=32.58, zoom=10))
+        initial_view_state=pdk.ViewState(latitude=0.34, longitude=32.58, zoom=10)
+    ))
