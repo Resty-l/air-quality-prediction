@@ -206,5 +206,4 @@ with tab2:
                 with torch.no_grad():
                     pred = model(tensor_input).item()
                 
-                results.append({"lat":  initial_view_state=pdk.ViewState(latitude=0.34, longitude=32.58, zoom=10)
-    ))
+                results.append({"lat":  initial_view_state=pdk.ViewState(latitude=0.34, longitude=32.58, zoom=10))
